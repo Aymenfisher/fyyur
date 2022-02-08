@@ -149,14 +149,13 @@ def show_venue(venue_id):
   venues=Venue.query.all()
   datas=[]
   for venue in venues:
-    past_shows=Show.query.filter(Show.venue_id==venue.id,Show.start_time<datetime.now()).all()
-    upcoming_shows=Show.query.filter(Show.venue_id==venue.id,Show.start_time>datetime.now()).all()
-    past_list=[i for i in past_shows]
-    upcoming_list=[i for i in upcoming_shows]
+    venue_shows=Show.query.join(Venue,Show.venue_id==venue.id).all() #using join
+    past_list=[i for i in venue_shows if i.start_time<datetime.now()]
+    upcoming_list=[i for i in venue_shows if i.start_time>datetime.now()]
     d={
     "id": venue.id,
     "name": venue.name,
-    "genres": venue.genres[1:-1].split(','), #db.ARRAY didnt work for me so i did this
+    "genres": venue.genres[1:-1].split(','), #genres is a required field, even its not , it will return empty string, this will work.
     "address": venue.address,
     "city": venue.city,
     "state": venue.state,
@@ -201,7 +200,7 @@ def create_venue_form():
 
 @app.route('/venues/create', methods=['POST'])
 def create_venue_submission():
-  form = VenueForm()
+  form = VenueForm(request.form)
   err=False
   # TODO: insert form data as a new Venue record in the db, instead
   # TODO: modify data to be the data object returned from db insertion
@@ -209,9 +208,9 @@ def create_venue_submission():
   genres=form.genres.data,facebook_link=form.facebook_link.data,website_link=form.website_link.data,seeking_talent=form.seeking_talent.data,
   seeking_description=form.seeking_description.data)
   try:
-    db.session.add(new_venue)
-    db.session.commit()
     if form.validate_on_submit():
+      db.session.add(new_venue)
+      db.session.commit()
       flash('Venue ' + form.name.data + ' was successfully listed!') # on successful db insert, flash success
     else:
       flash('An error occurred. Venue could not be listed.') #on unsuccessful db insert, flash an error instead.
@@ -281,51 +280,44 @@ def search_artists():
 def show_artist(artist_id):
   # shows the artist page with the given artist_id
   # TODO: replace with real artist data from the artist table, using artist_id
-  artists=Artist.query.all()
+  theartists=Artist.query.get(artist_id)
   venues=Venue.query.all()
-  past_shows=Show.query.filter(Show.start_time<datetime.now())
-  upcoming_show=Show.query.filter(Show.start_time>datetime.now())
-  datas=[]
-  for i in artists:
-    past_shows=Show.query.filter(Show.start_time<datetime.now(),Show.artist_id==i.id).all()
-    upcoming_shows=Show.query.filter(Show.start_time>datetime.now(),Show.artist_id==i.id).all()
-    past_list=[]
-    upcoming_list=[]
-    for p in past_shows:
-      pdata={
-        "venue_id":p.venue_id,
-        "venue_name":Venue.query.filter(Venue.id==p.venue_id).all()[0].name,
-        "venue_image_link":Venue.query.filter(Venue.id==p.venue_id).all()[0].name,
-        "start_time":str(p.start_time)
-      }
-      past_list.append(pdata)
-    for p in upcoming_shows:
-      pdata={
-        "venue_id":p.venue_id,
-        "venue_name":Venue.query.filter(Venue.id==p.venue_id).all()[0].name,
-        "venue_image_link":Venue.query.filter(Venue.id==p.venue_id).all()[0].name,
-        "start_time":str(p.start_time)
-      }
-      upcoming_list.append(pdata)
-    d={
-      "id":i.id,
-      "name":i.name,
-      "genres":i.genres[1:-1].split(','),
-      "city":i.city,
-      "state":i.state,
-      "phone":i.phone,
-      "website":i.website_link,
-      "facebook_link":i.facebook_link,
-      "seeking_venue":i.seeking_venue,
-      "seeking_description":i.seeking_description,
-      "image_link":i.image_link,
-      "past_shows":past_list,
-      "upcoming_shows": upcoming_list,
-      "past_shows_count": len(past_shows),
-      "upcoming_shows_count": len(upcoming_shows),
+  artist_shows=Show.query.join(Artist,Show.artist_id==artist_id).all()
+  past_shows=[i for i in artist_shows if i.start_time<datetime.now()]
+  upcoming_shows=[i for i in artist_shows if i.start_time>datetime.now()]
+  data={
+    "id":theartists.id,
+    "name":theartists.name,
+    "genres":theartists.genres[1:-1].split(','),
+    "city":theartists.city,
+    "state":theartists.state,
+    "phone":theartists.phone,
+    "website":theartists.website_link,
+    "facebook_link":theartists.facebook_link,
+    "seeking_venue":theartists.seeking_venue,
+    "seeking_description":theartists.seeking_description,
+    "image_link":theartists.image_link,
+    "past_shows":[],
+    "upcoming_shows": [],
+    "past_shows_count": len(past_shows),
+    "upcoming_shows_count": len(upcoming_shows),
     }
-    datas.append(d)
-  data = list(filter(lambda d: d['id'] == artist_id, datas))[0]
+  for p in past_shows:
+    pdata={
+      "venue_id":p.venue_id,
+      "venue_name":Venue.query.filter(Venue.id==p.venue_id).all()[0].name,
+      "venue_image_link":Venue.query.filter(Venue.id==p.venue_id).all()[0].name,
+      "start_time":str(p.start_time)
+    }
+    data["past_shows"].append(pdata)
+  for p in upcoming_shows:
+    udata={
+      "venue_id":p.venue_id,
+      "venue_name":Venue.query.filter(Venue.id==p.venue_id).all()[0].name,
+      "venue_image_link":Venue.query.filter(Venue.id==p.venue_id).all()[0].name,
+      "start_time":str(p.start_time)
+    }
+    data["upcoming_shows"].append(udata)
   return render_template('pages/show_artist.html', artist=data)
 
 #  Update
@@ -434,7 +426,7 @@ def create_artist_form():
 
 @app.route('/artists/create', methods=['POST'])
 def create_artist_submission():
-  form = ArtistForm()
+  form = ArtistForm(request.form)
   # called upon submitting the new artist listing form
   # TODO: insert form data as a new Venue record in the db, instead
   # TODO: modify data to be the data object returned from db insertion
@@ -443,10 +435,10 @@ def create_artist_submission():
   genres=form.genres.data,facebook_link=form.facebook_link.data,website_link=form.website_link.data,seeking_venue=form.seeking_venue.data,
   seeking_description=form.seeking_description.data)
   try:
-    db.session.add(new_artist)
-    db.session.commit()
     # on successful db insert, flash success
     if form.validate_on_submit():
+      db.session.add(new_artist)
+      db.session.commit()
       flash('Artist ' + form.name.data + ' was successfully listed!')
     else:
       flash('An error occurred. Artist could not be listed.') #on unsuccessful db insert, flash an error instead.
@@ -491,15 +483,15 @@ def create_shows():
 
 @app.route('/shows/create', methods=['POST'])
 def create_show_submission():
-  form = ShowForm()
+  form = ShowForm(request.form)
   # called to create new shows in the db, upon submitting new show listing form
   # TODO: insert form data as a new Show record in the db, instead
   new_show=Show(artist_id=form.artist_id.data,venue_id=form.venue_id.data,start_time=form.start_time.data)
   err=False
   try:
-    db.session.add(new_show)
-    db.session.commit()
     if form.validate_on_submit():
+      db.session.add(new_show)
+      db.session.commit()
       flash('Show was successfully listed!')  # on successful db insert, flash success
     else:
       flash('An error occurred. Show could not be listed.')  #on unsuccessful db insert, flash an error instead.
